@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Data (אל תעלה את הדוחות האישיים שלך!)
+
+# OS
+.DS_Store
+Thumbs.db

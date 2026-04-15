@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Arial'; margin: 15px; background-color: #f9f9f9; }
+        .header { text-align: center; font-weight: bold; font-size: 22px; margin-bottom: 10px; }
+        .emp-line { text-align: right; font-size: 16px; margin-bottom: 15px; border-bottom: 2px solid #000; padding-bottom: 5px; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th { background-color: #e0e0e0; border: 1px solid #000; padding: 6px; font-size: 12px; }
+        td { border: 1px solid #000; padding: 5px; text-align: center; font-size: 11px; }
+        .summary { margin-top: 15px; border: 1px solid #000; width: 250px; float: left; padding: 10px; background: #fff; }
+    </style>
+</head>
+<body>
+    <div class="header">נ.ע. הנשר כח אדם בע"מ - דו"ח נוכחות</div>
+    <div class="emp-line">שם העובד: <strong>{{ employee_name }}</strong></div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>תאריך</th>
+                <th>יום</th>
+                <th>מקום</th>
+                <th>כניסה</th>
+                <th>יציאה</th>
+                <th>הפסקה</th>
+                <th>סה"כ</th>
+                <th>100%</th>
+                <th>125%</th>
+                <th>150%</th>
+                <th>שבת</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>{{ row.date }}</td>
+                <td>{{ row.day }}</td>
+                <td>{{ row.location }}</td>
+                <td>{{ row.entry }}</td>
+                <td>{{ row.exit }}</td>
+                <td>{{ row.break }}</td>
+                <td>{{ row.total }}</td>
+                <td>{{ row.h100 }}</td>
+                <td>{{ row.h125 }}</td>
+                <td>{{ row.h150 }}</td>
+                <td>{{ row.shabbat or '0.00' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="summary">
+        <div>סה"כ שעות: {{ total_hours }}</div>
+        <div>שעות 100%: {{ total_hours }}</div>
+        <div>שעות 125%: 0.00</div>
+    </div>
+</body>
+</html>
