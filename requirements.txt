@@ -1,5 +1,9 @@
-pandas
+﻿pandas
 jinja2
 pdfkit
 pdfplumber
 openpyxl
+pytesseract
+PyMuPDF
+Pillow
+pytest

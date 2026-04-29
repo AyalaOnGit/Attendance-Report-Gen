@@ -1,0 +1,8 @@
+services:
+  report-gen:
+    build: .
+    volumes:
+      - ./data:/app/data  # מחבר את תיקיית הנתונים שלך לקונטיינר
+    environment:
+      - TESSERACT_CMD=/usr/bin/tesseract
+      - WKHTMLTOPDF_PATH=/usr/bin/wkhtmltopdf
