@@ -1,170 +1,187 @@
+import datetime
+import random
 from domain import AttendanceRow, AttendanceReport
 from exceptions import TransformationError
+from rules import TYPE_A_TRANSFORM, TYPE_B_TRANSFORM, TransformationRules
 
 
-def _time_to_minutes(time_text: str) -> int:
-    if not time_text or ':' not in time_text.replace('.', ':'):
-        return 480  # ברירת מחדל: 08:00 בבוקר (8*60)
-    try:
-        hours, minutes = [int(part) for part in time_text.replace('.', ':').split(':')]
-        return hours * 60 + minutes
-    except Exception:
-        return 480
+# ---------------------------------------------------------------------------
+# Helpers — operate on datetime.time, never on strings
+# ---------------------------------------------------------------------------
 
-def _minutes_to_time(minutes: int) -> str:
-    hours = minutes // 60
-    minutes = minutes % 60
-    hours = hours % 24
-    return f"{hours:02d}:{minutes:02d}"
+def _to_minutes(t: datetime.time) -> int:
+    return t.hour * 60 + t.minute
 
 
-def _parse_break_minutes(break_text: str) -> int:
-    try:
-        hours, minutes = [int(part) for part in break_text.replace('.', ':').split(':')]
-        return hours * 60 + minutes
-    except Exception:
-        return 30
+def _from_minutes(total: int) -> datetime.time:
+    total = total % (24 * 60)
+    return datetime.time(total // 60, total % 60)
 
 
-def _compute_total(entry: str, exit: str, break_text: str) -> str:
-    entry_min = _time_to_minutes(entry)
-    exit_min = _time_to_minutes(exit)
-    break_min = _parse_break_minutes(break_text or "00:30")
-    worked = exit_min - entry_min - break_min
+def _compute_total(entry: datetime.time, exit_: datetime.time, break_min: int) -> float:
+    worked = _to_minutes(exit_) - _to_minutes(entry) - break_min
     if worked < 0:
         worked += 24 * 60
-    return f"{worked / 60:.2f}"
+    return round(worked / 60, 2)
 
 
-def _deterministic_offset(row: AttendanceRow) -> int:
-    if not row.date:
-        return 5
-    values = [int(ch) for ch in row.date if ch.isdigit()]
-    return (sum(values) % 11) + 1
+def _row_seed(row: AttendanceRow) -> int:
+    """Deterministic seed derived from the row's date — no global RNG state."""
+    d = row.date
+    return d.year * 10000 + d.month * 100 + d.day
 
+
+def _deterministic_offset(row: AttendanceRow, rules: TransformationRules) -> int:
+    rng = random.Random(_row_seed(row))
+    return (rng.randint(0, rules.offset_modulus - 1)) + 1
+
+
+# ---------------------------------------------------------------------------
+# Strategy base
+# ---------------------------------------------------------------------------
 
 class BaseTransformationStrategy:
     def transform_row(self, row: AttendanceRow) -> AttendanceRow:
         raise NotImplementedError
 
 
+# ---------------------------------------------------------------------------
+# Type A — shifts entry/exit, fills h100 only (no OT columns in this format)
+# ---------------------------------------------------------------------------
+
 class TypeATransformationStrategy(BaseTransformationStrategy):
     """
-    Type A: דוח עם שעות 100%/125%/150%/שבת.
-    מזיז כניסה ויציאה ב-offset דטרמיניסטי, ומחשב h100 בלבד (אין OT בפורמט זה).
+    Type A report: columns 100%/125%/150%/shabbat.
+    Shifts entry and exit by a per-row deterministic offset.
+    Only h100 is populated; OT columns remain None.
     """
 
     def transform_row(self, row: AttendanceRow) -> AttendanceRow:
-        offset = _deterministic_offset(row)
-        entry_minutes = _time_to_minutes(row.entry)
-        exit_minutes  = _time_to_minutes(row.exit)
+        rules = TYPE_A_TRANSFORM
+        offset = _deterministic_offset(row, rules)
 
-        new_entry = min(entry_minutes + offset, 23 * 60)
-        new_exit  = min(exit_minutes  + offset, 24 * 60)
+        new_entry = _from_minutes(min(_to_minutes(row.entry) + offset, 23 * 60))
+        new_exit  = _from_minutes(min(_to_minutes(row.exit)  + offset, 24 * 60 - 1))
         if new_exit <= new_entry:
-            new_exit = new_entry + 60
+            new_exit = _from_minutes(_to_minutes(new_entry) + 60)
 
-        entry_text = _minutes_to_time(new_entry)
-        exit_text  = _minutes_to_time(new_exit)
-        total      = _compute_total(entry_text, exit_text, row.break_minutes or "00:30")
+        total = _compute_total(new_entry, new_exit, rules.break_minutes)
 
         return AttendanceRow(
             date=row.date, day=row.day, location=row.location,
-            entry=entry_text, exit=exit_text,
-            break_minutes=row.break_minutes,
+            entry=new_entry, exit=new_exit,
+            break_minutes=rules.break_minutes,
             total=total, h100=total,
             h125=None, h150=None, shabbat=row.shabbat,
         )
 
 
+# ---------------------------------------------------------------------------
+# Type B — shifts entry/exit, splits worked hours into h100 + h125
+# ---------------------------------------------------------------------------
+
 class TypeBTransformationStrategy(BaseTransformationStrategy):
     """
-    Type B: דוח עם שעות רגילות בלבד (ללא עמודות OT).
-    מזיז כניסה ויציאה ב-offset דטרמיניסטי, ומחשב גם h125 לשעות מעל 8 ביום.
+    Type B report: regular hours only (no OT columns in source).
+    Shifts entry and exit, then splits worked time into h100 (≤8 h) and h125 (>8 h).
     """
-    _STANDARD_DAY = 8 * 60  # 8 שעות = יום עבודה רגיל
 
     def transform_row(self, row: AttendanceRow) -> AttendanceRow:
-        offset = _deterministic_offset(row) + 1
-        entry_minutes = _time_to_minutes(row.entry)
-        exit_minutes  = _time_to_minutes(row.exit)
-        break_minutes = _parse_break_minutes(row.break_minutes or "00:30")
+        rules = TYPE_B_TRANSFORM
+        offset = _deterministic_offset(row, rules) + 1
 
-        new_entry = min(entry_minutes + offset, 23 * 60)
-        new_exit  = min(exit_minutes  + offset, 24 * 60)
+        new_entry = _from_minutes(min(_to_minutes(row.entry) + offset, 23 * 60))
+        new_exit  = _from_minutes(min(_to_minutes(row.exit)  + offset, 24 * 60 - 1))
         if new_exit <= new_entry:
-            new_exit = new_entry + 60
+            new_exit = _from_minutes(_to_minutes(new_entry) + 60)
 
-        entry_text = _minutes_to_time(new_entry)
-        exit_text  = _minutes_to_time(new_exit)
-        total      = _compute_total(entry_text, exit_text, row.break_minutes or "00:30")
+        total      = _compute_total(new_entry, new_exit, rules.break_minutes)
+        worked_min = _to_minutes(new_exit) - _to_minutes(new_entry) - rules.break_minutes
+        standard   = int(rules.standard_day_hours * 60)
 
-        worked_min = new_exit - new_entry - break_minutes
-        if worked_min > self._STANDARD_DAY:
-            h100 = f"{self._STANDARD_DAY / 60:.2f}"
-            h125 = f"{(worked_min - self._STANDARD_DAY) / 60:.2f}"
+        if worked_min > standard:
+            h100 = round(standard / 60, 2)
+            h125 = round((worked_min - standard) / 60, 2)
         else:
             h100 = total
             h125 = None
 
         return AttendanceRow(
             date=row.date, day=row.day, location=row.location,
-            entry=entry_text, exit=exit_text,
-            break_minutes=row.break_minutes,
+            entry=new_entry, exit=new_exit,
+            break_minutes=rules.break_minutes,
             total=total, h100=h100, h125=h125,
             h150=None, shabbat=None,
         )
 
 
+# ---------------------------------------------------------------------------
+# Decorator — validates the transformed row, falls back on failure
+# ---------------------------------------------------------------------------
+
 class ValidatingStrategyDecorator(BaseTransformationStrategy):
+    """
+    Wraps any strategy and validates the result.
+    Raises TransformationError if the output is invalid;
+    TransformationService catches it and keeps the original row.
+    """
+
     def __init__(self, strategy: BaseTransformationStrategy):
         self._strategy = strategy
 
     def transform_row(self, row: AttendanceRow) -> AttendanceRow:
         transformed = self._strategy.transform_row(row)
-        if not self._is_valid(transformed):
-            raise TransformationError("Transformed row failed validation")
+        self._validate(transformed)
         return transformed
 
-    def _is_valid(self, row: AttendanceRow) -> bool:
-        try:
-            entry = _time_to_minutes(row.entry)
-            exit = _time_to_minutes(row.exit)
-            if exit <= entry:
-                return False
-            total = float(row.total or "0")
-            if total < 0 or total > 24:
-                return False
-            if row.break_minutes:
-                break_minutes = _parse_break_minutes(row.break_minutes)
-                if break_minutes < 0 or break_minutes > 360:
-                    return False
-            return True
-        except TransformationError:
-            return False
-        except Exception:
-            return False
+    @staticmethod
+    def _validate(row: AttendanceRow) -> None:
+        if row.exit <= row.entry:
+            raise TransformationError(f"exit {row.exit} <= entry {row.entry}")
+        if row.total is not None and not (0 < row.total <= 24):
+            raise TransformationError(f"total hours out of range: {row.total}")
+        if not (0 <= row.break_minutes <= 360):
+            raise TransformationError(f"break_minutes out of range: {row.break_minutes}")
 
+
+# ---------------------------------------------------------------------------
+# Service — registry-based dispatch, no if/else on report type
+# ---------------------------------------------------------------------------
 
 class TransformationService:
     def __init__(self, strategy_registry: dict[str, BaseTransformationStrategy]):
-        self._strategy_registry = strategy_registry
+        self._registry = strategy_registry
 
     def transform_report(self, report_type: str, report: AttendanceReport) -> AttendanceReport:
-        strategy = self._strategy_registry.get(report_type)
+        strategy = self._registry.get(report_type)
         if strategy is None:
-            raise TransformationError(f"No transformation strategy configured for {report_type}")
+            raise TransformationError(f"No strategy for report type: {report_type}")
 
-        transformed_rows = []
-        for row in report.rows:
-            try:
-                transformed_rows.append(strategy.transform_row(row))
-            except TransformationError:
-                transformed_rows.append(row)
-
+        transformed = [
+            self._safe_transform(strategy, row)
+            for row in report.rows
+        ]
         return AttendanceReport(
-            rows=transformed_rows,
+            rows=tuple(transformed),
             report_type=report.report_type,
             employee_name=report.employee_name,
             summary=report.summary,
         )
+
+    @staticmethod
+    def _safe_transform(
+        strategy: BaseTransformationStrategy, row: AttendanceRow
+    ) -> AttendanceRow:
+        try:
+            return strategy.transform_row(row)
+        except TransformationError:
+            return row
+
+
+def create_transformation_service() -> TransformationService:
+    """Factory — main.py calls this without knowing the concrete strategy classes."""
+    registry = {
+        'TYPE_A': ValidatingStrategyDecorator(TypeATransformationStrategy()),
+        'TYPE_B': ValidatingStrategyDecorator(TypeBTransformationStrategy()),
+    }
+    return TransformationService(registry)

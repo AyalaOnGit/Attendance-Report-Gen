@@ -1,15 +1,10 @@
-﻿import argparse
+import argparse
 import logging
 import os
 from ocr_engine import get_pdf_text_and_layout
 from classifier import identify_report_type
 from parser_factory import create_parser
-from transformation import (
-    TransformationService,
-    TypeATransformationStrategy,
-    TypeBTransformationStrategy,
-    ValidatingStrategyDecorator,
-)
+from transformation import TransformationService, create_transformation_service
 from exporters import export_results
 
 DEFAULT_INPUT_DIR = 'data/inputs'
@@ -39,14 +34,6 @@ def parse_args():
         help='Directory for rendered output files',
     )
     return parser.parse_args()
-
-
-def create_transformation_service():
-    strategy_registry = {
-        'TYPE_A': ValidatingStrategyDecorator(TypeATransformationStrategy()),
-        'TYPE_B': ValidatingStrategyDecorator(TypeBTransformationStrategy()),
-    }
-    return TransformationService(strategy_registry)
 
 
 def log_processing_error(file_name: str, message: str, output_dir: str):

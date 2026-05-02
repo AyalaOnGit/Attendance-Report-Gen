@@ -29,6 +29,12 @@ def identify_report_type(text):
     if not text or not text.strip():
         return TYPE_B
 
+    # אם רוב השורות עם תוכן הן שורות טבלאיות עם | — זה TYPE_B בלי קשר לניקוד מילות
+    content_lines = [l for l in text.splitlines() if l.strip()]
+    pipe_lines = [l for l in content_lines if '|' in l]
+    if len(content_lines) > 0 and len(pipe_lines) / len(content_lines) >= 0.4:
+        return TYPE_B
+
     normalized = text.lower()
     score_a = sum(normalized.count(keyword.lower()) for keyword in _KEYWORDS_A)
     score_b = sum(normalized.count(keyword.lower()) for keyword in _KEYWORDS_B)
