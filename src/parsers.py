@@ -132,7 +132,7 @@ class BaseParser:
     # --- methods subclasses must override ---
 
     def _is_header_line(self, line: str) -> bool:
-        raise NotImplementedError
+        return False
 
     def _parse_row(
         self, line: str,
@@ -140,13 +140,13 @@ class BaseParser:
         location: str,
     ) -> tuple[Optional[AttendanceRow], Optional[datetime.date]]:
         """Receives a pre-cleaned line. Returns (row_or_None, updated_current_date)."""
-        raise NotImplementedError
+        return None, current_date
 
     def _parse_summary(self) -> dict:
-        raise NotImplementedError
+        return {}
 
     def _get_location(self, text: str) -> str:
-        raise NotImplementedError
+        return ''
 
     # --- shared helpers ---
 

@@ -17,10 +17,6 @@ class AttendanceRow:
     h150: Optional[float] = None
     shabbat: Optional[float] = None
 
-    def __post_init__(self) -> None:
-        if self.exit <= self.entry:
-            raise ValueError(f"exit {self.exit} must be after entry {self.entry}")
-
 
 @dataclass(frozen=True)
 class AttendanceReport:

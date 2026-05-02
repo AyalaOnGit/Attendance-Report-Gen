@@ -4,14 +4,11 @@ from parsers import TypeAParser, TypeBParser, BaseParser
 from domain import AttendanceReport, AttendanceRow
 
 
-def test_base_parser_is_abstract():
+def test_base_parser_returns_defaults():
     parser = BaseParser("text")
-    with pytest.raises(NotImplementedError):
-        parser._is_header_line("line")
-    with pytest.raises(NotImplementedError):
-        parser._parse_row("line", None, "loc")
-    with pytest.raises(NotImplementedError):
-        parser._parse_summary()
+    assert parser._is_header_line("line") is False
+    assert parser._parse_row("line", None, "loc") == (None, None)
+    assert parser._parse_summary() == {}
 
 
 def test_type_a_returns_typed_values():
