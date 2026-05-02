@@ -49,26 +49,33 @@ def process_file(file_path: str, output_dir: str, transformation_service):
 
     try:
         raw_text, layout = get_pdf_text_and_layout(file_path)
-        if not raw_text.strip() and not layout:
-            raise ValueError('OCR returned no usable text or layout for this file.')
-
-        report_type = identify_report_type(raw_text)
-        parser = create_parser(report_type, raw_text, layout)
-        report = parser.parse()
-
-        if not report.rows:
-            raise ValueError('No attendance rows found. OCR or parser did not detect expected data.')
-
-        modified_report = transformation_service.transform_report(report_type, report)
-        base_name = os.path.splitext(file_name)[0] + '_NEW'
-        export_results(modified_report, base_name, output_dir)
-        employee_name = report.employee_name or 'לא זוהה'
-        print(f"Successfully created outputs for {file_name} (Employee: {employee_name})")
-
     except Exception as exc:
         message = str(exc)
         logger.error(f'Failed processing {file_name}: {message}')
         log_processing_error(file_name, message, output_dir)
+        return
+
+    if not raw_text.strip() and not layout:
+        message = 'OCR returned no usable text or layout for this file.'
+        logger.error(f'Failed processing {file_name}: {message}')
+        log_processing_error(file_name, message, output_dir)
+        return
+
+    report_type = identify_report_type(raw_text)
+    parser = create_parser(report_type, raw_text, layout)
+    report = parser.parse()
+
+    if not report.rows:
+        message = 'No attendance rows found. OCR or parser did not detect expected data.'
+        logger.error(f'Failed processing {file_name}: {message}')
+        log_processing_error(file_name, message, output_dir)
+        return
+
+    modified_report = transformation_service.transform_report(report_type, report)
+    base_name = os.path.splitext(file_name)[0] + '_NEW'
+    export_results(modified_report, base_name, output_dir)
+    employee_name = report.employee_name or 'לא זוהה'
+    print(f"Successfully created outputs for {file_name} (Employee: {employee_name})")
 
 
 def resolve_input_path(input_path: str) -> str:

@@ -1,7 +1,6 @@
 import datetime
 import random
 from domain import AttendanceRow, AttendanceReport
-from exceptions import TransformationError
 from rules import TYPE_A_TRANSFORM, TYPE_B_TRANSFORM, TransformationRules
 
 
@@ -42,7 +41,7 @@ def _deterministic_offset(row: AttendanceRow, rules: TransformationRules) -> int
 
 class BaseTransformationStrategy:
     def transform_row(self, row: AttendanceRow) -> AttendanceRow:
-        raise NotImplementedError
+        return row
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +121,7 @@ class TypeBTransformationStrategy(BaseTransformationStrategy):
 class ValidatingStrategyDecorator(BaseTransformationStrategy):
     """
     Wraps any strategy and validates the result.
-    Raises TransformationError if the output is invalid;
-    TransformationService catches it and keeps the original row.
+    Returns the original row when the transformed result is invalid.
     """
 
     def __init__(self, strategy: BaseTransformationStrategy):
@@ -131,17 +129,19 @@ class ValidatingStrategyDecorator(BaseTransformationStrategy):
 
     def transform_row(self, row: AttendanceRow) -> AttendanceRow:
         transformed = self._strategy.transform_row(row)
-        self._validate(transformed)
+        if not self._is_valid(transformed):
+            return row
         return transformed
 
     @staticmethod
-    def _validate(row: AttendanceRow) -> None:
+    def _is_valid(row: AttendanceRow) -> bool:
         if row.exit <= row.entry:
-            raise TransformationError(f"exit {row.exit} <= entry {row.entry}")
+            return False
         if row.total is not None and not (0 < row.total <= 24):
-            raise TransformationError(f"total hours out of range: {row.total}")
+            return False
         if not (0 <= row.break_minutes <= 360):
-            raise TransformationError(f"break_minutes out of range: {row.break_minutes}")
+            return False
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -155,27 +155,15 @@ class TransformationService:
     def transform_report(self, report_type: str, report: AttendanceReport) -> AttendanceReport:
         strategy = self._registry.get(report_type)
         if strategy is None:
-            raise TransformationError(f"No strategy for report type: {report_type}")
+            return report
 
-        transformed = [
-            self._safe_transform(strategy, row)
-            for row in report.rows
-        ]
+        transformed = [strategy.transform_row(row) for row in report.rows]
         return AttendanceReport(
             rows=tuple(transformed),
             report_type=report.report_type,
             employee_name=report.employee_name,
             summary=report.summary,
         )
-
-    @staticmethod
-    def _safe_transform(
-        strategy: BaseTransformationStrategy, row: AttendanceRow
-    ) -> AttendanceRow:
-        try:
-            return strategy.transform_row(row)
-        except TransformationError:
-            return row
 
 
 def create_transformation_service() -> TransformationService:

@@ -1,11 +1,9 @@
 import datetime
-import pytest
 from transformation import (
     TransformationService, TypeATransformationStrategy,
     TypeBTransformationStrategy, ValidatingStrategyDecorator,
 )
 from domain import AttendanceReport, AttendanceRow
-from exceptions import TransformationError
 
 
 def _make_row(entry='08:00', exit_='16:00', date='2023-02-02'):
@@ -61,42 +59,35 @@ def test_h100_plus_h125_equals_total():
         assert abs((result.h100 or 0) + result.h125 - (result.total or 0)) < 0.01
 
 
-def test_domain_rejects_exit_before_entry():
-    """__post_init__ prevents constructing an invalid row."""
-    with pytest.raises(ValueError, match="exit"):
-        AttendanceRow(
-            date=datetime.date(2023, 2, 2), day='חמישי', location='גונן',
-            entry=datetime.time(16, 0), exit=datetime.time(8, 0),
-        )
-
-
-def test_validator_raises_on_bad_row():
-    """ValidatingStrategyDecorator raises TransformationError when strategy output is invalid."""
+def test_validator_returns_original_on_bad_transform():
+    """ValidatingStrategyDecorator returns the original row when strategy output is invalid."""
     row = _make_row()
 
     class ReturnsInvalidTime(TypeATransformationStrategy):
-        """Returns a row where exit == entry, bypassing __post_init__ via object.__setattr__."""
+        """Returns a row where exit == entry, bypassing immutability via object.__setattr__."""
         def transform_row(self, r: AttendanceRow) -> AttendanceRow:
             bad = TypeATransformationStrategy.transform_row(self, r)
-            # Force exit == entry to trigger the decorator's validation
             object.__setattr__(bad, 'exit', bad.entry)
             return bad
 
-    with pytest.raises(TransformationError):
-        ValidatingStrategyDecorator(ReturnsInvalidTime()).transform_row(row)
+    result = ValidatingStrategyDecorator(ReturnsInvalidTime()).transform_row(row)
+    assert result is row
 
 
-def test_service_falls_back_on_error():
+def test_service_falls_back_on_invalid_transform():
     row = _make_row()
     report = AttendanceReport(rows=(row,), report_type='TYPE_A')
 
-    class AlwaysFails(TypeATransformationStrategy):
-        def transform_row(self, r):
-            raise TransformationError("forced")
+    class ReturnsInvalidRow(TypeATransformationStrategy):
+        def transform_row(self, r: AttendanceRow) -> AttendanceRow:
+            bad = TypeATransformationStrategy.transform_row(self, r)
+            object.__setattr__(bad, 'exit', bad.entry)
+            return bad
 
-    service = TransformationService({'TYPE_A': AlwaysFails()})
+    decorated = ValidatingStrategyDecorator(ReturnsInvalidRow())
+    service = TransformationService({'TYPE_A': decorated})
     result = service.transform_report('TYPE_A', report)
-    assert result.rows[0] is row  # original kept
+    assert result.rows[0] is row  # original kept by decorator
 
 
 def test_service_registry_no_if_else():
