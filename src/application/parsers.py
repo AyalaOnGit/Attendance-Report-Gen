@@ -1,17 +1,14 @@
 import datetime
 import re
+from abc import ABC, abstractmethod
 from typing import Optional, Any
-from domain import AttendanceReport, AttendanceRow
-from logic import extract_employee_name, get_day_of_week
-from rules import PARSER_RULES
+from domain.domain import AttendanceReport, AttendanceRow
+from domain.rules import PARSER_RULES
+from application.logic import extract_employee_name, get_day_of_week
 
 DATE_PATTERN = re.compile(r'\b(\d{1,2}[/.]\d{1,2}[/.]\d{2,4})\b')
 TIME_PATTERN = re.compile(r'\b(\d{1,2}[:.](?:[0-5]\d))\b')
 
-
-# ---------------------------------------------------------------------------
-# Parsing helpers — strings → typed values (done ONCE at the boundary)
-# ---------------------------------------------------------------------------
 
 def _parse_date(raw: str) -> Optional[datetime.date]:
     parts = re.split(r'[/.]', raw)
@@ -47,11 +44,6 @@ def _shift_minutes(entry: datetime.time, exit_: datetime.time) -> int:
 
 
 def _extract_location(text: str, pipe_rows_only: bool = False) -> str:
-    """
-    Scans lines for a recurring Hebrew word that is likely a location name.
-    pipe_rows_only=True: only considers pipe-delimited rows with a date (TYPE B).
-    pipe_rows_only=False: scans all text (TYPE A).
-    """
     DAYS = {'ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'}
     stop = {
         'יום', 'שעות', 'שעת', 'סהכ', 'תאריך', 'כניסה', 'יציאה', 'הפסקה',
@@ -75,22 +67,16 @@ def _extract_location(text: str, pipe_rows_only: bool = False) -> str:
     return ''
 
 
-# ---------------------------------------------------------------------------
-# Template Method — BaseParser defines the algorithm skeleton
-# ---------------------------------------------------------------------------
-
-class BaseParser:
+class BaseParser(ABC):
     """
     Template Method: parse() defines the fixed sequence of steps.
-    Subclasses override only _is_header_line(), _parse_row(), _parse_summary().
+    Subclasses override _is_header_line(), _parse_row(), _parse_summary(), _get_location().
     """
 
     def __init__(self, text: str, layout: Any = None):
         self.text = text
         self.layout = layout
         self.lines = [line.strip() for line in text.splitlines() if line.strip()]
-
-    # --- algorithm skeleton (do not override) ---
 
     def parse(self) -> AttendanceReport:
         location = self._get_location(self.text)
@@ -101,26 +87,21 @@ class BaseParser:
         for line in self.lines:
             if self._is_header_line(line):
                 continue
-
-            # Data sanitization happens ONCE here, before subclass logic sees the line
             clean = self._clean_line(line)
             row, current_date = self._parse_row(clean, current_date, location)
             if row is None:
                 continue
-
             key = (row.date, row.entry)
             if key in seen:
                 continue
             seen.add(key)
             rows.append(row)
 
-        summary = self._parse_summary()
-        emp_name = self._extract_employee_name()
         return AttendanceReport(
             rows=tuple(rows),
             report_type=getattr(self, 'report_type', 'GENERIC'),
-            employee_name=emp_name,
-            summary=summary,
+            employee_name=self._extract_employee_name(),
+            summary=self._parse_summary(),
         )
 
     @staticmethod
@@ -129,26 +110,21 @@ class BaseParser:
         clean = re.sub(r'[\[\]{}]', ' ', line)
         return ' '.join(clean.split())
 
-    # --- methods subclasses must override ---
+    @abstractmethod
+    def _is_header_line(self, line: str) -> bool: ...
 
-    def _is_header_line(self, line: str) -> bool:
-        raise NotImplementedError
-
+    @abstractmethod
     def _parse_row(
         self, line: str,
         current_date: Optional[datetime.date],
         location: str,
-    ) -> tuple[Optional[AttendanceRow], Optional[datetime.date]]:
-        """Receives a pre-cleaned line. Returns (row_or_None, updated_current_date)."""
-        raise NotImplementedError
+    ) -> tuple[Optional[AttendanceRow], Optional[datetime.date]]: ...
 
-    def _parse_summary(self) -> dict:
-        raise NotImplementedError
+    @abstractmethod
+    def _parse_summary(self) -> dict: ...
 
-    def _get_location(self, text: str) -> str:
-        raise NotImplementedError
-
-    # --- shared helpers ---
+    @abstractmethod
+    def _get_location(self, text: str) -> str: ...
 
     def _extract_employee_name(self) -> str:
         name = extract_employee_name(self.text)
@@ -169,8 +145,7 @@ class BaseParser:
             return None, None
         entry = min(entries)
         exit_ = max(exits)
-        shift = _shift_minutes(entry, exit_)
-        if not (PARSER_RULES.min_shift_minutes <= shift <= PARSER_RULES.max_shift_minutes):
+        if not (PARSER_RULES.min_shift_minutes <= _shift_minutes(entry, exit_) <= PARSER_RULES.max_shift_minutes):
             return None, None
         return entry, exit_
 
@@ -191,13 +166,7 @@ class BaseParser:
         )
 
 
-# ---------------------------------------------------------------------------
-# TypeAParser — free-form lines, date propagates forward
-# ---------------------------------------------------------------------------
-
-_HEADER_KEYWORDS_A = {
-    'תאריך', 'כניסה', 'יציאה', 'הפסקה', 'סהכ', 'שבת', '100%', '125%', '150%',
-}
+_HEADER_KEYWORDS_A = {'תאריך', 'כניסה', 'יציאה', 'הפסקה', 'סהכ', 'שבת', '100%', '125%', '150%'}
 
 
 class TypeAParser(BaseParser):
@@ -241,10 +210,6 @@ class TypeAParser(BaseParser):
             summary['total_days'] = m.group(1)
         return summary
 
-
-# ---------------------------------------------------------------------------
-# TypeBParser — pipe-delimited table, date in first cell
-# ---------------------------------------------------------------------------
 
 _HEADER_KEYWORDS_B = {
     'date', 'day', 'entry', 'exit', 'break', 'location',

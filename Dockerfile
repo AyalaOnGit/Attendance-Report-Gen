@@ -25,7 +25,7 @@ RUN apt-get update \
 WORKDIR /app
 
 # הוספת התיקייה src לנתיב החיפוש
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app/src:/app/src/domain:/app/src/application:/app/src/infrastructure:/app/src/cli
 
 COPY requirements.txt .
 
@@ -42,4 +42,4 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY . .
 
-ENTRYPOINT ["python", "src/main.py"]
+ENTRYPOINT ["python", "src/cli/main.py"]

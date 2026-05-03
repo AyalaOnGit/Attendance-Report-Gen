@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class TransformationRules:
-    offset_modulus: int        # (sum_of_date_digits % modulus) + 1
-    standard_day_hours: float  # hours before overtime kicks in
-    break_minutes: int         # default break in minutes
+    offset_modulus: int
+    standard_day_hours: float
+    break_minutes: int
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class ParserRules:
     max_exit: datetime.time
     min_shift_minutes: int
     max_shift_minutes: int
-    break_minutes: int         # default break applied to parsed rows
+    break_minutes: int
 
 
 TYPE_A_TRANSFORM = TransformationRules(

@@ -3,7 +3,8 @@ import datetime
 import pandas as pd
 import pdfkit
 from jinja2 import Environment, FileSystemLoader
-from domain import AttendanceReport, AttendanceRow
+from domain.domain import AttendanceReport, AttendanceRow
+from domain.exceptions import OutputError
 
 WKHTMLTOPDF_PATH = os.environ.get('WKHTMLTOPDF_PATH', '/usr/bin/wkhtmltopdf')
 PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH) if os.path.exists(WKHTMLTOPDF_PATH) else None
@@ -18,19 +19,19 @@ def _fmt_date(d: datetime.date) -> str:
 
 
 def _row_to_display(row: AttendanceRow) -> dict:
-    """Serialize a frozen AttendanceRow to strings for templates/Excel."""
+    """Serialize a frozen AttendanceRow to strings — only place strings are produced."""
     return {
-        'date':          _fmt_date(row.date),
-        'day':           row.day,
-        'location':      row.location,
-        'entry':         _fmt_time(row.entry),
-        'exit':          _fmt_time(row.exit),
-        'break':         f"{row.break_minutes // 60:02d}:{row.break_minutes % 60:02d}",
-        'total':         f"{row.total:.2f}" if row.total is not None else '',
-        'h100':          f"{row.h100:.2f}" if row.h100 is not None else '',
-        'h125':          f"{row.h125:.2f}" if row.h125 is not None else '',
-        'h150':          f"{row.h150:.2f}" if row.h150 is not None else '',
-        'shabbat':       f"{row.shabbat:.2f}" if row.shabbat is not None else '',
+        'date':    _fmt_date(row.date),
+        'day':     row.day,
+        'location': row.location,
+        'entry':   _fmt_time(row.entry),
+        'exit':    _fmt_time(row.exit),
+        'break':   f"{row.break_minutes // 60:02d}:{row.break_minutes % 60:02d}",
+        'total':   f"{row.total:.2f}"   if row.total   is not None else '',
+        'h100':    f"{row.h100:.2f}"    if row.h100    is not None else '',
+        'h125':    f"{row.h125:.2f}"    if row.h125    is not None else '',
+        'h150':    f"{row.h150:.2f}"    if row.h150    is not None else '',
+        'shabbat': f"{row.shabbat:.2f}" if row.shabbat is not None else '',
     }
 
 
@@ -67,7 +68,7 @@ class PdfRenderer:
         try:
             pdfkit.from_string(html, output_path, configuration=self.config, options=self._OPTIONS)
         except Exception as exc:
-            print(f"❌ PDF generation failed: {exc}")
+            raise OutputError(f"PDF generation failed: {exc}") from exc
 
 
 def export_results(report: AttendanceReport, base_name: str, output_dir: str = 'data/outputs') -> None:

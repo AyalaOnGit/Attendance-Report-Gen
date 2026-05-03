@@ -1,5 +1,14 @@
-from domain import AttendanceRow
+import datetime
+from domain.domain import AttendanceRow
+
 
 def test_attendance_row_creation():
-    row = AttendanceRow(date="10/10/2025", day="שישי", location="בית", entry="09:00", exit="12:00")
-    assert row.total is None # ברירת המחדל ב-Dataclass[cite: 13]
+    row = AttendanceRow(
+        date=datetime.date(2023, 1, 1),
+        day='ראשון',
+        location='גונן',
+        entry=datetime.time(8, 0),
+        exit=datetime.time(16, 0),
+    )
+    assert row.entry == datetime.time(8, 0)
+    assert row.exit == datetime.time(16, 0)

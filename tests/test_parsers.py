@@ -1,17 +1,13 @@
 import datetime
 import pytest
-from parsers import TypeAParser, TypeBParser, BaseParser
-from domain import AttendanceReport, AttendanceRow
+from application.parsers import TypeAParser, TypeBParser, BaseParser
+from domain.domain import AttendanceReport, AttendanceRow
 
 
 def test_base_parser_is_abstract():
-    parser = BaseParser("text")
-    with pytest.raises(NotImplementedError):
-        parser._is_header_line("line")
-    with pytest.raises(NotImplementedError):
-        parser._parse_row("line", None, "loc")
-    with pytest.raises(NotImplementedError):
-        parser._parse_summary()
+    """ABC prevents direct instantiation — subclasses must implement all abstract methods."""
+    with pytest.raises(TypeError):
+        BaseParser("text")  # type: ignore
 
 
 def test_type_a_returns_typed_values():
